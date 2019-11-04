@@ -1,5 +1,7 @@
 -module(antidote_crdt_generic).
 
+-define(BACKEND, 'JavaNode@Abookwihnopages').
+
 %% Callbacks
 -export([downstream/2, equal/2, from_binary/1,
 	 is_operation/1, new/0, require_state_downstream/1,
@@ -35,7 +37,17 @@ new() -> unique().
 % will need to set up something on the java side for reads
 -spec value(antidote_crdt_generic()) -> objectid().
 
-value(Generic) -> Generic.
+value(Generic) ->
+    net_kernel:connect_node(?BACKEND), % creates association if not already there
+    {javamailbox, ?BACKEND} !
+      {self(),
+       {Generic, read}}, % sends the read call
+    R = receive
+	  error -> throw("Oh no, an error has occurred");
+	  M -> M
+	  after 5000 -> {"no answer!"}
+	end,
+    R.
 
 -spec downstream(antidote_crdt_generic_op(),
 		 antidote_crdt_generic()) -> {ok, downstream_op()}.
@@ -82,13 +94,12 @@ apply_downstreams([{Binary1, _Time} | OpsRest],
 %% @private create an orddict entry from a downstream op
 apply_downstream(Binary, Generic) ->
     % send and recieve message
-    net_kernel:connect_node('JavaNode@dhcp-gs-1201'), % creates association if not already there
-    {javamailbox, 'JavaNode@dhcp-gs-1201'} !
+    net_kernel:connect_node(?BACKEND), % creates association if not already there
+    {javamailbox, ?BACKEND} !
       {self(),
-       {Generic, Binary}}, % sends the generic function
+       {Generic, invoke, Binary}}, % sends the generic function
     R = receive
-	  error ->
-	      throw("Oh no, an error has occurred");
+	  error -> throw("Oh no, an error has occurred");
 	  _M -> {Generic}
 	  after 5000 -> {"no answer!"}
 	end,
