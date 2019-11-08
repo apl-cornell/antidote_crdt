@@ -9,6 +9,12 @@
 
 -behaviour(antidote_crdt).
 
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+-endif.
+
 -export_type([antidote_crdt_generic/0,
 	      binary_antidote_crdt_generic/0,
 	      antidote_crdt_generic_op/0]).
@@ -27,14 +33,13 @@
 
 -type objectid() :: binary().
 
--type data() :: {binary(), non_neg_integer()}.
+%%-type data() :: {binary(), non_neg_integer()}.
+-type data() :: {binary()}.
 
 -spec new() -> antidote_crdt_generic().
 
 new() -> unique().
 
-%% add a value call to server
-% will need to set up something on the java side for reads
 -spec value(antidote_crdt_generic()) -> objectid().
 
 value(Generic) ->
@@ -54,26 +59,10 @@ value(Generic) ->
 
 downstream({invoke, Elem}, Generic) ->
     downstream({invoke_all, [Elem]}, Generic);
-downstream({invoke_all, Elems}, Generic) ->
-    CreateDownstream = fun (Elem, Id) -> {Elem, Id} end,
-    DownstreamOps = create_downstreams(CreateDownstream,
-				       lists:usort(Elems), Generic, []),
-    {ok, lists:reverse(DownstreamOps)}.
+%% rethink this
+downstream({invoke_all, Elems}, _Generic) ->
+    {ok, lists:reverse(Elems)}.
 
-create_downstreams(_CreateDownstream, [], _Generic,
-		   DownstreamOps) ->
-    DownstreamOps;
-create_downstreams(_CreateDownstream, _Elems, [],
-		   DownstreamOps) ->
-    DownstreamOps;
-%% will need to do time ordering
-create_downstreams(CreateDownstream,
-		   [Elem1 | ElemsRest], Generic, DownstreamOps) ->
-    DownstreamOp = CreateDownstream(Elem1, Generic),
-    create_downstreams(CreateDownstream, ElemsRest, Generic,
-		       [DownstreamOp | DownstreamOps]).
-
-%% @doc generate a unique identifier (best-effort).
 unique() -> crypto:strong_rand_bytes(20).
 
 -spec update(downstream_op(),
@@ -83,15 +72,11 @@ unique() -> crypto:strong_rand_bytes(20).
 update(DownstreamOp, Generic) ->
     {ok, apply_downstreams(DownstreamOp, Generic)}.
 
-%% @private apply a list of downstream ops to a given orset
 apply_downstreams([], Generic) -> Generic;
-%% When I do time ordering in create_downstream, will not longer need time here
-apply_downstreams([{Binary1, _Time} | OpsRest],
-		  Generic) ->
+apply_downstreams([Binary1 | OpsRest], Generic) ->
     [apply_downstream(Binary1, Generic)
      | apply_downstreams(OpsRest, Generic)].
 
-%% @private create an orddict entry from a downstream op
 apply_downstream(Binary, Generic) ->
     % send and recieve message
     net_kernel:connect_node(?BACKEND), % creates association if not already there
@@ -123,3 +108,8 @@ is_operation({invoke_all, L}) when is_list(L) -> true;
 is_operation(_) -> false.
 
 require_state_downstream(_) -> true.
+
+%% TESTS
+-ifdef(TEST).
+
+-endif.
