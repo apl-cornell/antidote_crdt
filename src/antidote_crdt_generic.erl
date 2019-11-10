@@ -1,6 +1,6 @@
 -module(antidote_crdt_generic).
 
--define(BACKEND, 'JavaNode@Abookwihnopages').
+-define(BACKEND, 'JavaNode@Abookwithnopages').
 
 %% Callbacks
 -export([downstream/2, equal/2, from_binary/1,
@@ -45,8 +45,7 @@ new() -> unique().
 value(Generic) ->
     net_kernel:connect_node(?BACKEND), % creates association if not already there
     {javamailbox, ?BACKEND} !
-      {self(),
-       {Generic, read}}, % sends the read call
+      {self(), {Generic, read}}, % sends the read call
     R = receive
 	  error -> throw("Oh no, an error has occurred");
 	  M -> M
