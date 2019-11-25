@@ -1,4 +1,4 @@
--module(antidote_crdt_generic).
+\-module(antidote_crdt_generic).
 
 %% Callbacks
 -export([downstream/2, equal/2, from_binary/1,
@@ -13,14 +13,14 @@
 
 -define(HOSTFILE, "host_config.txt").
 
-gethost(FILE) ->
-    % [read] is a list of modes that the file should be opened as
-    {ok, Device} = file:open(FILE, [read]),
-    try io:get_line(Device, "") after
-      file:close(Device)
-    end.
+%gethost(FILE) ->
+%    % [read] is a list of modes that the file should be opened as
+%    {ok, Device} = file:open(FILE, [read]),
+%    try io:get_line(Device, "") after
+%      file:close(Device)
+%    end.
 
--define(BACKEND, list_to_atom(gethost(?HOSTFILE))).
+%-define(BACKEND, list_to_atom(gethost(?HOSTFILE))).
 
 -ifdef(TEST).
 
@@ -49,8 +49,8 @@ new() -> unique().
 -spec value(antidote_crdt_generic()) -> objectid().
 
 value(Generic) ->
-    net_kernel:connect_node(?BACKEND), % creates association if not already there
-    {javamailbox, ?BACKEND} !
+    net_kernel:connect_node('JavaNode@127.0.0.1'), % creates association if not already there
+    {javamailbox, 'JavaNode@127.0.0.1'} !
       {self(), {Generic, read}}, % sends the read call
     R = receive
 	  error -> throw("Oh no, an error has occurred");
@@ -81,24 +81,29 @@ last_elm(A) -> A.
 
 % Want only the last genericid in list, maybe just use the Generic variable instead?
 update(DownstreamOp, Generic) ->
+io:fwrite("Got update~n"),
     {ok,
      last_elm(apply_downstreams(DownstreamOp, Generic))}.
 
 apply_downstreams([], Generic) -> Generic;
 apply_downstreams([Binary1 | OpsRest], Generic) ->
-    [apply_downstream(Binary1, Generic)
+    io:fwrite("Splitting downstream~n"),
+[apply_downstream(Binary1, Generic)
      | apply_downstreams(OpsRest, Generic)].
 
 apply_downstream(Binary, Generic) ->
     % send and recieve message
-    net_kernel:connect_node(?BACKEND), % creates association if not already there
-    {javamailbox, ?BACKEND} !
+    io:fwrite("Start apply~n"),
+    io:fwrite('JavaNode@127.0.0.1'),
+    OK = net_kernel:connect_node('JavaNode@127.0.0.1'), % creates association if not already there
+    io:fwrite(OK),
+    {javamailbox, 'JavaNode@127.0.0.1'} !
       {self(),
        {Generic, invoke, Binary}}, % sends the generic function
     R = receive
-	  error -> throw("Oh no, an error has occurred");
+	  error ->io:fwrite("Oh no, there has been an error with the backend~n"), throw("Oh no, an error has occurred");
 	  _M -> {Generic}
-	  after 5000 -> {"no answer!"}
+	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
 	end,
     R.
 
