@@ -107,6 +107,20 @@ apply_downstream(Binary, Generic) ->
 	end,
     R.
 
+snapshot(DownstreamOp, Generic) ->
+	{ok, _} = update(DownstreamOp, Generic),
+	net_kernel:connect_node(?BACKEND), % creates association if not already there
+    {javamailbox, ?BACKEND} !
+      {self(),
+       {Generic, snapshot}}, % sends the generic function
+    R = receive
+	  error -> throw("Oh no, an error has occurred");
+	  M -> M
+	  after 5000 -> {"no answer!"}
+	end,
+    {ok, R}.
+
+
 %% Later work in a better equality
 -spec equal(antidote_crdt_generic(),
 	    antidote_crdt_generic()) -> boolean().
