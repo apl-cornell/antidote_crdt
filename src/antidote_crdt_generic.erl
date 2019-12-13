@@ -1,4 +1,4 @@
-\-module(antidote_crdt_generic).
+-module(antidote_crdt_generic).
 
 %% Callbacks
 -export([downstream/2, equal/2, from_binary/1,
