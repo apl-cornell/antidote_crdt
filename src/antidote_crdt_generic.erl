@@ -3,7 +3,7 @@
 %% Callbacks
 -export([downstream/2, equal/2, from_binary/1,
 	 is_operation/1, new/0, require_state_downstream/1,
-	 to_binary/1, update/2, value/1]).
+	 snapshot/2, to_binary/1, update/2, value/1]).
 
 -export_type([antidote_crdt_generic/0,
 	      binary_antidote_crdt_generic/0,
@@ -11,16 +11,18 @@
 
 -behaviour(antidote_crdt).
 
--define(HOSTFILE, "host_config.txt").
+gethost() ->
+    % First see if we have the node name declared at the antidote level(vm.args.src). If not grab node name from antidote_crdt.app.src...this is usually for testing
+    case os:getenv("backend_node") of
+      false ->
+	  application:load(antidote_crdt),
+	  {ok, Node} = application:get_env(antidote_crdt,
+					   backend_node),
+	  Node;
+      Node -> Node
+    end.
 
-%gethost(FILE) ->
-%    % [read] is a list of modes that the file should be opened as
-%    {ok, Device} = file:open(FILE, [read]),
-%    try io:get_line(Device, "") after
-%      file:close(Device)
-%    end.
-
-%-define(BACKEND, list_to_atom(gethost(?HOSTFILE))).
+-define(BACKEND, gethost()).
 
 -ifdef(TEST).
 
@@ -37,21 +39,20 @@
 
 -type downstream_op() :: [data()].
 
--type objectid() :: binary().
+-type objectid() :: {binary(), binary()}.
 
-%%-type data() :: {binary(), non_neg_integer()}.
 -type data() :: {binary()}.
 
 -spec new() -> antidote_crdt_generic().
 
-new() -> unique().
+new() -> {unique(), <<>>}.
 
--spec value(antidote_crdt_generic()) -> objectid().
+-spec value(antidote_crdt_generic()) -> binary().
 
-value(Generic) ->
-    net_kernel:connect_node('JavaNode@127.0.0.1'), % creates association if not already there
-    {javamailbox, 'JavaNode@127.0.0.1'} !
-      {self(), {Generic, read}}, % sends the read call
+value({JavaId, _JavaObject}) ->
+    net_kernel:connect_node(?BACKEND), % creates association if not already there
+    {javamailbox, ?BACKEND} !
+      {self(), {JavaId, read}}, % sends the read call
     R = receive
 	  error -> throw("Oh no, an error has occurred");
 	  M -> M
@@ -64,55 +65,72 @@ value(Generic) ->
 
 downstream({invoke, Elem}, Generic) ->
     downstream({invoke_all, [Elem]}, Generic);
-%% rethink this
 downstream({invoke_all, Elems}, _Generic) ->
     {ok, Elems}.
 
 unique() -> crypto:strong_rand_bytes(20).
-
--spec update(downstream_op(),
-	     antidote_crdt_generic()) -> {ok,
-					  antidote_crdt_generic()}.
 
 last_elm([]) -> [];
 last_elm([A]) -> A;
 last_elm([_ | A]) -> last_elm(A);
 last_elm(A) -> A.
 
+-spec update(downstream_op(),
+	     antidote_crdt_generic()) -> {ok,
+					  antidote_crdt_generic()}.
+
 % Want only the last genericid in list, maybe just use the Generic variable instead?
 update(DownstreamOp, Generic) ->
-io:fwrite("Got update~n"),
+    io:fwrite("Got update~n"),
     {ok,
      last_elm(apply_downstreams(DownstreamOp, Generic))}.
 
 apply_downstreams([], Generic) -> Generic;
 apply_downstreams([Binary1 | OpsRest], Generic) ->
     io:fwrite("Splitting downstream~n"),
-[apply_downstream(Binary1, Generic)
+    [apply_downstream(Binary1, Generic)
      | apply_downstreams(OpsRest, Generic)].
 
-apply_downstream(Binary, Generic) ->
+apply_downstream(Binary,
+		 {JavaId, JavaObject} = Generic) ->
     % send and recieve message
     io:fwrite("Start apply~n"),
-    io:fwrite('JavaNode@127.0.0.1'),
-    OK = net_kernel:connect_node('JavaNode@127.0.0.1'), % creates association if not already there
-    io:fwrite(OK),
-    {javamailbox, 'JavaNode@127.0.0.1'} !
+    io:fwrite(?BACKEND),
+    io:fwrite("~n"),
+    %net_kernel:connect_node(?BACKEND), % creates association if not already there
+    io:fwrite("Connected~n"),
+    {javamailbox, ?BACKEND} !
       {self(),
-       {Generic, invoke, Binary}}, % sends the generic function
+       {JavaId, invoke, Binary}}, % sends the generic function
     R = receive
-	  error ->io:fwrite("Oh no, there has been an error with the backend~n"), throw("Oh no, an error has occurred");
+	  error ->
+	      io:fwrite("Oh no, there has been an error with "
+			"the backend~n"),
+	      throw("Oh no, an error has occurred");
+	  getobject ->
+	      {javamailbox, ?BACKEND} !
+		{self(), {JavaId, invoke, JavaObject}},
+	      receive
+		error ->
+		    io:fwrite("Something happened while we were trying "
+			      "to update the JavaObject"),
+		    throw("Oh no, an error has occurred");
+		_M -> apply_downstream(Binary, Generic)
+		after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	      end;
 	  _M -> {Generic}
 	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
 	end,
     R.
 
-snapshot(DownstreamOp, Generic) ->
-	{ok, _} = update(DownstreamOp, Generic),
-	net_kernel:connect_node(?BACKEND), % creates association if not already there
+snapshot(DownstreamOp,
+	 {JavaId, _JavaObject} = Generic) ->
+    % send and recieve message
+    {ok, _} = update(DownstreamOp, Generic),
+    net_kernel:connect_node(?BACKEND), % creates association if not already there
     {javamailbox, ?BACKEND} !
       {self(),
-       {Generic, snapshot}}, % sends the generic function
+       {JavaId, snapshot}}, % sends the generic function
     R = receive
 	  error -> throw("Oh no, an error has occurred");
 	  M -> M
@@ -120,24 +138,30 @@ snapshot(DownstreamOp, Generic) ->
 	end,
     {ok, R}.
 
-
-%% Later work in a better equality
 -spec equal(antidote_crdt_generic(),
 	    antidote_crdt_generic()) -> boolean().
 
-equal(GenericA, GenericB) -> GenericA == GenericB.
+%%equal(GenericA, GenericB) -> GenericA == GenericB.
+equal(_GenericA, _GenericB) ->
+    throw("Waiiiittt... we actually use equality?? "
+	  "Please review antidote_crdt_generic "
+	  "in the antidote_crdt repo").
 
 -spec
      to_binary(antidote_crdt_generic()) -> binary_antidote_crdt_generic().
 
-to_binary(Binary) -> Binary.
+%%to_binary(Binary) -> Binary.
+to_binary({JavaId, JavaObject}) ->
+    <<JavaId:20, JavaObject/binary>>.
 
-from_binary(<<Bin/binary>>) -> {ok, Bin}.
+from_binary(<<JavaId:20, JavaObject/binary>>) ->
+    {ok, {JavaId, JavaObject}}.
 
 is_operation({invoke, _Elem}) -> true;
 is_operation({invoke_all, L}) when is_list(L) -> true;
 is_operation(_) -> false.
 
+%% I ignore the `Generic` state in downstream so this is not needed
 require_state_downstream(_) -> false.
 
 %% TESTS
@@ -148,7 +172,9 @@ prepare_and_effect(Op, Generic) ->
     update(Downstream, Generic).
 
 update_invoke_test() ->
-    net_kernel:start([erlnode, shortnames]),
+    net_kernel:start([erlnode, longnames]),
+    erlang:set_cookie(node(), antidote),
+    % may be outdated
     Counter_object = <<172, 237, 0, 5, 115, 114, 0, 12, 109,
 		       97, 105, 110, 46, 67, 111, 117, 110, 116, 101, 114, 0,
 		       0, 0, 0, 0, 0, 0, 1, 2, 0, 1, 73, 0, 5, 99, 111, 117,
