@@ -47,12 +47,24 @@ new() -> {unique(), <<>>}.
 
 -spec value(antidote_crdt_generic()) -> binary().
 
-value({JavaId, _JavaObject}) ->
+value({JavaId, JavaObject}) ->
     net_kernel:connect_node(gethost()), % creates association if not already there
     {javamailbox, gethost()} !
       {self(), {JavaId, read}}, % sends the read call
     R = receive
 	  error -> throw("Oh no, an error has occurred");
+	  getobject ->
+	      io:fwrite("There has been a request for the object"),
+	      {javamailbox, gethost()} !
+		{self(), {JavaId, invoke, JavaObject}},
+	      receive
+		error ->
+		    io:fwrite("Something happened while we were trying "
+			      "to update the JavaObject"),
+		    throw("Oh no, an error has occurred");
+		_M -> value({JavaId, JavaObject})
+		after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	      end;
 	  M -> M
 	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
 	end,
@@ -241,6 +253,8 @@ update_invoke_test() ->
 			78, 117, 109, 98, 101, 114, 134, 172, 149, 29, 11, 148,
 			224, 139, 2, 0, 0, 120, 112, 0, 0, 0, 1>>,
     Generic = new(),
+    ?assertEqual(Counter_value_0,
+		 (value({unique(), Counter_object}))),
     {ok, Generic1} = prepare_and_effect({invoke,
 					 Counter_object},
 					Generic),
@@ -252,7 +266,8 @@ update_invoke_test() ->
     {ok, Generic3} = prepare_and_effect({invoke,
 					 Decrement_1_object},
 					Generic2),
-    ?assertEqual(Counter_value_0, (value(Generic3))).
+    ?assertEqual(Counter_value_0,
+		 (value(Generic3))).    %% snapshot check
 
 equal_test() ->
     Generic1 = new(),
