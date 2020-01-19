@@ -253,8 +253,6 @@ update_invoke_test() ->
 			78, 117, 109, 98, 101, 114, 134, 172, 149, 29, 11, 148,
 			224, 139, 2, 0, 0, 120, 112, 0, 0, 0, 1>>,
     Generic = new(),
-    ?assertEqual(Counter_value_0,
-		 (value({unique(), Counter_object}))),
     {ok, Generic1} = prepare_and_effect({invoke,
 					 Counter_object},
 					Generic),
@@ -266,8 +264,14 @@ update_invoke_test() ->
     {ok, Generic3} = prepare_and_effect({invoke,
 					 Decrement_1_object},
 					Generic2),
+    ?assertEqual(Counter_value_0, (value(Generic3))),
+    %% snapshot read check
     ?assertEqual(Counter_value_0,
-		 (value(Generic3))).    %% snapshot check
+		 (value({unique(), Counter_object}))),
+    {ok, Generic4} = prepare_and_effect({invoke,
+					 Increment_1_object},
+					{unique(), Counter_object}),
+    ?assertEqual(Counter_value_1, (value(Generic4))).
 
 equal_test() ->
     Generic1 = new(),
