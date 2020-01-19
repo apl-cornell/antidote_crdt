@@ -22,8 +22,6 @@ gethost() ->
       Node -> Node
     end.
 
--define(BACKEND, gethost()).
-
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -50,8 +48,8 @@ new() -> {unique(), <<>>}.
 -spec value(antidote_crdt_generic()) -> binary().
 
 value({JavaId, _JavaObject}) ->
-    net_kernel:connect_node(?BACKEND), % creates association if not already there
-    {javamailbox, ?BACKEND} !
+    net_kernel:connect_node(gethost()), % creates association if not already there
+    {javamailbox, gethost()} !
       {self(), {JavaId, read}}, % sends the read call
     R = receive
 	  error -> throw("Oh no, an error has occurred");
@@ -95,11 +93,12 @@ apply_downstream(Binary,
 		 {JavaId, JavaObject} = Generic) ->
     % send and recieve message
     io:fwrite("Start apply~n"),
-    io:fwrite(?BACKEND),
+    io:fwrite(gethost()),
     io:fwrite("~n"),
-    %net_kernel:connect_node(?BACKEND), % creates association if not already there
+    true =
+	net_kernel:connect_node(gethost()), % creates association if not already there
     io:fwrite("Connected~n"),
-    {javamailbox, ?BACKEND} !
+    {javamailbox, 'JavaNode@127.0.0.1'} !
       {self(),
        {JavaId, invoke, Binary}}, % sends the generic function
     R = receive
@@ -108,7 +107,8 @@ apply_downstream(Binary,
 			"the backend~n"),
 	      throw("Oh no, an error has occurred");
 	  getobject ->
-	      {javamailbox, ?BACKEND} !
+	      io:fwrite("There has been a request for the object"),
+	      {javamailbox, gethost()} !
 		{self(), {JavaId, invoke, JavaObject}},
 	      receive
 		error ->
@@ -127,8 +127,8 @@ snapshot(DownstreamOp,
 	 {JavaId, _JavaObject} = Generic) ->
     % send and recieve message
     {ok, _} = update(DownstreamOp, Generic),
-    net_kernel:connect_node(?BACKEND), % creates association if not already there
-    {javamailbox, ?BACKEND} !
+    net_kernel:connect_node(gethost()), % creates association if not already there
+    {javamailbox, gethost()} !
       {self(),
        {JavaId, snapshot}}, % sends the generic function
     R = receive
@@ -141,18 +141,19 @@ snapshot(DownstreamOp,
 -spec equal(antidote_crdt_generic(),
 	    antidote_crdt_generic()) -> boolean().
 
-%%equal(GenericA, GenericB) -> GenericA == GenericB.
-equal(_GenericA, _GenericB) ->
-    throw("Waiiiittt... we actually use equality?? "
-	  "Please review antidote_crdt_generic "
-	  "in the antidote_crdt repo").
+equal(GenericA, GenericB) -> GenericA == GenericB.
+
+%%equal(_GenericA, _GenericB) ->
+%%    throw("Waiiiittt... we actually use equality?? "
+%%	  "Please review antidote_crdt_generic "
+%%	  "in the antidote_crdt repo").
 
 -spec
      to_binary(antidote_crdt_generic()) -> binary_antidote_crdt_generic().
 
 %%to_binary(Binary) -> Binary.
 to_binary({JavaId, JavaObject}) ->
-	<<JavaId:20/binary, JavaObject/binary>>.
+    <<JavaId:20/binary, JavaObject/binary>>.
 
 from_binary(<<JavaId:20/binary, JavaObject/binary>>) ->
     {ok, {JavaId, JavaObject}}.
@@ -177,42 +178,54 @@ update_invoke_test() ->
     % may be outdated
     Counter_object = <<172, 237, 0, 5, 115, 114, 0, 12, 109,
 		       97, 105, 110, 46, 67, 111, 117, 110, 116, 101, 114, 0,
-		       0, 0, 0, 0, 0, 0, 1, 2, 0, 1, 73, 0, 5, 99, 111, 117,
-		       110, 116, 120, 112, 0, 0, 0, 0>>,
+		       0, 0, 0, 0, 0, 0, 1, 2, 0, 2, 73, 0, 5, 99, 111, 117,
+		       110, 116, 76, 0, 5, 73, 100, 83, 101, 116, 116, 0, 15,
+		       76, 106, 97, 118, 97, 47, 117, 116, 105, 108, 47, 83,
+		       101, 116, 59, 120, 112, 0, 0, 0, 0, 115, 114, 0, 17,
+		       106, 97, 118, 97, 46, 117, 116, 105, 108, 46, 72, 97,
+		       115, 104, 83, 101, 116, 186, 68, 133, 149, 150, 184,
+		       183, 52, 3, 0, 0, 120, 112, 119, 12, 0, 0, 0, 16, 63,
+		       64, 0, 0, 0, 0, 0, 0, 120>>,
     Increment_1_object = <<172, 237, 0, 5, 115, 114, 0, 20,
 			   109, 97, 105, 110, 46, 71, 101, 110, 101, 114, 105,
 			   99, 70, 117, 110, 99, 116, 105, 111, 110, 0, 0, 0, 0,
-			   0, 0, 0, 1, 2, 0, 2, 76, 0, 8, 65, 114, 103, 117,
+			   0, 0, 0, 1, 2, 0, 3, 76, 0, 8, 65, 114, 103, 117,
 			   109, 101, 110, 116, 116, 0, 18, 76, 106, 97, 118, 97,
 			   47, 108, 97, 110, 103, 47, 79, 98, 106, 101, 99, 116,
 			   59, 76, 0, 12, 70, 117, 110, 99, 116, 105, 111, 110,
 			   78, 97, 109, 101, 116, 0, 18, 76, 106, 97, 118, 97,
 			   47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110,
-			   103, 59, 120, 112, 115, 114, 0, 17, 106, 97, 118, 97,
-			   46, 108, 97, 110, 103, 46, 73, 110, 116, 101, 103,
-			   101, 114, 18, 226, 160, 164, 247, 129, 135, 56, 2, 0,
-			   1, 73, 0, 5, 118, 97, 108, 117, 101, 120, 114, 0, 16,
-			   106, 97, 118, 97, 46, 108, 97, 110, 103, 46, 78, 117,
-			   109, 98, 101, 114, 134, 172, 149, 29, 11, 148, 224,
-			   139, 2, 0, 0, 120, 112, 0, 0, 0, 1, 116, 0, 9, 105,
-			   110, 99, 114, 101, 109, 101, 110, 116>>,
+			   103, 59, 76, 0, 2, 73, 100, 116, 0, 19, 76, 106, 97,
+			   118, 97, 47, 108, 97, 110, 103, 47, 73, 110, 116,
+			   101, 103, 101, 114, 59, 120, 112, 115, 114, 0, 17,
+			   106, 97, 118, 97, 46, 108, 97, 110, 103, 46, 73, 110,
+			   116, 101, 103, 101, 114, 18, 226, 160, 164, 247, 129,
+			   135, 56, 2, 0, 1, 73, 0, 5, 118, 97, 108, 117, 101,
+			   120, 114, 0, 16, 106, 97, 118, 97, 46, 108, 97, 110,
+			   103, 46, 78, 117, 109, 98, 101, 114, 134, 172, 149,
+			   29, 11, 148, 224, 139, 2, 0, 0, 120, 112, 0, 0, 0, 1,
+			   116, 0, 9, 105, 110, 99, 114, 101, 109, 101, 110,
+			   116, 115, 113, 0, 126, 0, 5, 0, 52, 132, 82>>,
     Decrement_1_object = <<172, 237, 0, 5, 115, 114, 0, 20,
 			   109, 97, 105, 110, 46, 71, 101, 110, 101, 114, 105,
 			   99, 70, 117, 110, 99, 116, 105, 111, 110, 0, 0, 0, 0,
-			   0, 0, 0, 1, 2, 0, 2, 76, 0, 8, 65, 114, 103, 117,
+			   0, 0, 0, 1, 2, 0, 3, 76, 0, 8, 65, 114, 103, 117,
 			   109, 101, 110, 116, 116, 0, 18, 76, 106, 97, 118, 97,
 			   47, 108, 97, 110, 103, 47, 79, 98, 106, 101, 99, 116,
 			   59, 76, 0, 12, 70, 117, 110, 99, 116, 105, 111, 110,
 			   78, 97, 109, 101, 116, 0, 18, 76, 106, 97, 118, 97,
 			   47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110,
-			   103, 59, 120, 112, 115, 114, 0, 17, 106, 97, 118, 97,
-			   46, 108, 97, 110, 103, 46, 73, 110, 116, 101, 103,
-			   101, 114, 18, 226, 160, 164, 247, 129, 135, 56, 2, 0,
-			   1, 73, 0, 5, 118, 97, 108, 117, 101, 120, 114, 0, 16,
-			   106, 97, 118, 97, 46, 108, 97, 110, 103, 46, 78, 117,
-			   109, 98, 101, 114, 134, 172, 149, 29, 11, 148, 224,
-			   139, 2, 0, 0, 120, 112, 0, 0, 0, 1, 116, 0, 9, 100,
-			   101, 99, 114, 101, 109, 101, 110, 116>>,
+			   103, 59, 76, 0, 2, 73, 100, 116, 0, 19, 76, 106, 97,
+			   118, 97, 47, 108, 97, 110, 103, 47, 73, 110, 116,
+			   101, 103, 101, 114, 59, 120, 112, 115, 114, 0, 17,
+			   106, 97, 118, 97, 46, 108, 97, 110, 103, 46, 73, 110,
+			   116, 101, 103, 101, 114, 18, 226, 160, 164, 247, 129,
+			   135, 56, 2, 0, 1, 73, 0, 5, 118, 97, 108, 117, 101,
+			   120, 114, 0, 16, 106, 97, 118, 97, 46, 108, 97, 110,
+			   103, 46, 78, 117, 109, 98, 101, 114, 134, 172, 149,
+			   29, 11, 148, 224, 139, 2, 0, 0, 120, 112, 0, 0, 0, 1,
+			   116, 0, 9, 100, 101, 99, 114, 101, 109, 101, 110,
+			   116, 115, 113, 0, 126, 0, 5, 0, 75, 118, 202>>,
     Counter_value_0 = <<172, 237, 0, 5, 115, 114, 0, 17,
 			106, 97, 118, 97, 46, 108, 97, 110, 103, 46, 73, 110,
 			116, 101, 103, 101, 114, 18, 226, 160, 164, 247, 129,

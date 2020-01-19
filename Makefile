@@ -25,7 +25,7 @@ eunit:
 	${REBAR} eunit
 
 proper:
-	${REBAR} proper --apps antidote_crdt
+	${REBAR} proper
 
 shell:
 	${REBAR} shell --apps antidote_crdt
