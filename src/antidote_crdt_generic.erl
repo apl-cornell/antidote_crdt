@@ -152,9 +152,9 @@ equal(_GenericA, _GenericB) ->
 
 %%to_binary(Binary) -> Binary.
 to_binary({JavaId, JavaObject}) ->
-    <<JavaId:20, JavaObject/binary>>.
+	<<JavaId:20/binary, JavaObject/binary>>.
 
-from_binary(<<JavaId:20, JavaObject/binary>>) ->
+from_binary(<<JavaId:20/binary, JavaObject/binary>>) ->
     {ok, {JavaId, JavaObject}}.
 
 is_operation({invoke, _Elem}) -> true;
