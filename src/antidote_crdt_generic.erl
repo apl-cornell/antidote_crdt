@@ -13,14 +13,15 @@
 
 gethost() ->
     % First see if we have the node name declared at the antidote level(vm.args.src). If not grab node name from antidote_crdt.app.src...this is usually for testing
-    case os:getenv("backend_node") of
-      false ->
-	  application:load(antidote_crdt),
-	  {ok, Node} = application:get_env(antidote_crdt,
-					   backend_node),
-	  Node;
-      Node -> Node
-    end.
+    R = case os:getenv("backend_node") of
+	  false ->
+	      application:load(antidote_crdt),
+	      {ok, Node} = application:get_env(antidote_crdt,
+					       backend_node),
+	      Node;
+	  Node -> Node
+	end,
+    list_to_atom(R).
 
 -ifdef(TEST).
 
@@ -105,6 +106,9 @@ apply_downstream(Binary,
 		 {JavaId, JavaObject} = Generic) ->
     % send and recieve message
     io:fwrite("Start apply~n"),
+    erlang:set_cookie(node(), antidote),
+    io:fwrite(erlang:get_cookie()),
+    io:fwrite("~n"),
     io:fwrite(gethost()),
     io:fwrite("~n"),
     true =
@@ -268,6 +272,7 @@ update_invoke_test() ->
     %% snapshot read check
     ?assertEqual(Counter_value_0,
 		 (value({unique(), Counter_object}))),
+    %% snapshot invoke check
     {ok, Generic4} = prepare_and_effect({invoke,
 					 Increment_1_object},
 					{unique(), Counter_object}),
