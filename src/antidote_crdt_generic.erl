@@ -114,7 +114,7 @@ apply_downstream(Binary,
     true =
 	net_kernel:connect_node(gethost()), % creates association if not already there
     io:fwrite("Connected~n"),
-    {javamailbox, 'JavaNode@127.0.0.1'} !
+    {javamailbox, gethost()} !
       {self(),
        {JavaId, invoke, Binary}}, % sends the generic function
     R = receive
@@ -131,6 +131,8 @@ apply_downstream(Binary,
 		    io:fwrite("Something happened while we were trying "
 			      "to update the JavaObject"),
 		    throw("Oh no, an error has occurred");
+		getobject -> io:fwrite("We tried to get the object after we just gave the object"),
+			throw("Something went wrong with get_object");
 		_M -> apply_downstream(Binary, Generic)
 		after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
 	      end;
@@ -149,6 +151,8 @@ snapshot(DownstreamOp,
        {JavaId, snapshot}}, % sends the generic function
     R = receive
 	  error -> throw("Oh no, an error has occurred");
+	  getobject ->
+	      Generic; %We are in an edge case where we don't have the object init msg yet but we are trying to snapshot the object. It still is the case that the first invoke we get will be the object init, we just have to wait to merge snapshot operations so we are returning Generic which is just new().
 	  M -> M
 	  after 5000 -> {"no answer!"}
 	end,
