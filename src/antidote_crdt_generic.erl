@@ -19,9 +19,9 @@ gethost() ->
 	      {ok, Node} = application:get_env(antidote_crdt,
 					       backend_node),
 	      Node;
-	  Node -> Node
+	  Node -> list_to_atom(Node)
 	end,
-    list_to_atom(R).
+	R.
 
 -ifdef(TEST).
 
@@ -44,7 +44,16 @@ gethost() ->
 
 -spec new() -> antidote_crdt_generic().
 
-new() -> {unique(), <<>>}.
+new() ->
+    net_kernel:connect_node(gethost()), % creates association if not already there
+    {javamailbox, gethost()} !
+      {self(), {<<>>, newjavaid}}, % sends the read call
+    R = receive
+	  error -> throw("Oh no, an error has occurred");
+	  M -> M
+	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	end,
+	{R, <<>>}.
 
 -spec value(antidote_crdt_generic()) -> binary().
 
@@ -74,12 +83,28 @@ value({JavaId, JavaObject}) ->
 -spec downstream(antidote_crdt_generic_op(),
 		 antidote_crdt_generic()) -> {ok, downstream_op()}.
 
-downstream({invoke, Elem}, Generic) ->
-    downstream({invoke_all, [Elem]}, Generic);
-downstream({invoke_all, Elems}, _Generic) ->
-    {ok, Elems}.
-
-unique() -> crypto:strong_rand_bytes(20).
+downstream({invoke, Elem}, {JavaId, JavaObject} = Generic) ->
+    net_kernel:connect_node(gethost()), % creates association if not already there
+    {javamailbox, gethost()} !
+      {self(), {JavaId, downstream, Elem}}, % sends the read call
+    R = receive
+	  error -> throw("Oh no, an error has occurred");
+	  getobject ->
+	      io:fwrite("There has been a request for the object"),
+	      {javamailbox, gethost()} !
+		{self(), {JavaId, invoke, JavaObject}},
+	      receive
+		error ->
+		    io:fwrite("Something happened while we were trying "
+			      "to update the JavaObject"),
+		    throw("Oh no, an error has occurred");
+		_M -> downstream({invoke, Elem}, Generic)
+		after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	      end;
+	  M -> M
+	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	end,
+    {ok, [R]}.
 
 last_elm([]) -> [];
 last_elm([A]) -> A;
@@ -96,6 +121,7 @@ update(DownstreamOp, Generic) ->
     {ok,
      last_elm(apply_downstreams(DownstreamOp, Generic))}.
 
+% Will be factored out soon
 apply_downstreams([], Generic) -> Generic;
 apply_downstreams([Binary1 | OpsRest], Generic) ->
     io:fwrite("Splitting downstream~n"),
@@ -187,6 +213,7 @@ require_state_downstream(_) -> false.
 
 %% TESTS
 -ifdef(TEST).
+unique() -> crypto:strong_rand_bytes(20).
 
 prepare_and_effect(Op, Generic) ->
     {ok, Downstream} = downstream(Op, Generic),
