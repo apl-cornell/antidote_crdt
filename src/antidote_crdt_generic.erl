@@ -21,7 +21,52 @@ gethost() ->
 	      Node;
 	  Node -> list_to_atom(Node)
 	end,
-	R.
+    R.
+
+send_java(Msg, {JavaId, JavaObject}, Fun, Arg) ->
+	net_kernel:connect_node(gethost()), % creates association if not already there
+	{javamailbox, gethost()} !
+	  {self(), Msg}, % sends message
+	receive
+	      error -> throw("Oh no, an error has occurred");
+	      getobject ->
+		  io:fwrite("There has been a request for the object"),
+		  {javamailbox, gethost()} !
+		    {self(), {JavaId, invoke, JavaObject}},
+		  receive
+		    error ->
+			io:fwrite("Something happened while we were trying "
+				  "to update the JavaObject"),
+			throw("Oh no, an error has occurred");
+		    _M -> Fun(Arg)
+		    after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+		  end;
+	      M -> M
+	      after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	    end.
+
+send_java(Msg, {JavaId, JavaObject}, Fun, Arg1,
+		  Arg2) ->
+	net_kernel:connect_node(gethost()), % creates association if not already there
+	{javamailbox, gethost()} !
+	  {self(), Msg}, % sends message
+	receive
+	      error -> throw("Oh no, an error has occurred");
+	      getobject ->
+		  io:fwrite("There has been a request for the object"),
+		  {javamailbox, gethost()} !
+		    {self(), {JavaId, invoke, JavaObject}},
+		  receive
+		    error ->
+			io:fwrite("Something happened while we were trying "
+				  "to update the JavaObject"),
+			throw("Oh no, an error has occurred");
+		    _M -> Fun(Arg1, Arg2)
+		    after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+		  end;
+	      M -> M
+	      after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	    end.
 
 -ifdef(TEST).
 
@@ -53,57 +98,20 @@ new() ->
 	  M -> M
 	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
 	end,
-	{R, <<>>}.
+    {R, <<>>}.
 
 -spec value(antidote_crdt_generic()) -> binary().
 
-value({JavaId, JavaObject}) ->
-    net_kernel:connect_node(gethost()), % creates association if not already there
-    {javamailbox, gethost()} !
-      {self(), {JavaId, read}}, % sends the read call
-    R = receive
-	  error -> throw("Oh no, an error has occurred");
-	  getobject ->
-	      io:fwrite("There has been a request for the object"),
-	      {javamailbox, gethost()} !
-		{self(), {JavaId, invoke, JavaObject}},
-	      receive
-		error ->
-		    io:fwrite("Something happened while we were trying "
-			      "to update the JavaObject"),
-		    throw("Oh no, an error has occurred");
-		_M -> value({JavaId, JavaObject})
-		after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-	      end;
-	  M -> M
-	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-	end,
+value({JavaId, _JavaObject} = Generic) ->
+    R = send_java({JavaId, read}, Generic, fun value/1, Generic),
     R.
 
 -spec downstream(antidote_crdt_generic_op(),
 		 antidote_crdt_generic()) -> {ok, downstream_op()}.
 
-downstream({invoke, Elem}, {JavaId, JavaObject} = Generic) ->
-    net_kernel:connect_node(gethost()), % creates association if not already there
-    {javamailbox, gethost()} !
-      {self(), {JavaId, downstream, Elem}}, % sends the read call
-    R = receive
-	  error -> throw("Oh no, an error has occurred");
-	  getobject ->
-	      io:fwrite("There has been a request for the object"),
-	      {javamailbox, gethost()} !
-		{self(), {JavaId, invoke, JavaObject}},
-	      receive
-		error ->
-		    io:fwrite("Something happened while we were trying "
-			      "to update the JavaObject"),
-		    throw("Oh no, an error has occurred");
-		_M -> downstream({invoke, Elem}, Generic)
-		after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-	      end;
-	  M -> M
-	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-	end,
+downstream({invoke, Elem},
+	   {JavaId, _JavaObject} = Generic) ->
+    R = send_java({JavaId, downstream, Elem}, Generic, fun downstream/2, {invoke, Elem}, Generic),
     {ok, [R]}.
 
 last_elm([]) -> [];
@@ -121,7 +129,6 @@ update(DownstreamOp, Generic) ->
     {ok,
      last_elm(apply_downstreams(DownstreamOp, Generic))}.
 
-% Will be factored out soon
 apply_downstreams([], Generic) -> Generic;
 apply_downstreams([Binary1 | OpsRest], Generic) ->
     io:fwrite("Splitting downstream~n"),
@@ -129,66 +136,23 @@ apply_downstreams([Binary1 | OpsRest], Generic) ->
      | apply_downstreams(OpsRest, Generic)].
 
 apply_downstream(Binary,
-		 {JavaId, JavaObject} = Generic) ->
-    % send and recieve message
-    io:fwrite("Start apply~n"),
-    erlang:set_cookie(node(), antidote),
-    io:fwrite(erlang:get_cookie()),
-    io:fwrite("~n"),
-    io:fwrite(gethost()),
-    io:fwrite("~n"),
-    true =
-	net_kernel:connect_node(gethost()), % creates association if not already there
-    io:fwrite("Connected~n"),
-    {javamailbox, gethost()} !
-      {self(),
-       {JavaId, invoke, Binary}}, % sends the generic function
-    R = receive
-	  error ->
-	      io:fwrite("Oh no, there has been an error with "
-			"the backend~n"),
-	      throw("Oh no, an error has occurred");
-	  getobject ->
-	      io:fwrite("There has been a request for the object"),
-	      {javamailbox, gethost()} !
-		{self(), {JavaId, invoke, JavaObject}},
-	      receive
-		error ->
-		    io:fwrite("Something happened while we were trying "
-			      "to update the JavaObject"),
-		    throw("Oh no, an error has occurred");
-		getobject -> io:fwrite("We tried to get the object after we just gave the object"),
-			throw("Something went wrong with get_object");
-		_M -> apply_downstream(Binary, Generic)
-		after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-	      end;
-	  _M -> {Generic}
-	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-	end,
+		 {JavaId, _JavaObject} = Generic) ->
+	R = send_java({JavaId, invoke, Binary}, Generic, fun apply_downstream/2, Binary, Generic),
     R.
 
 snapshot(DownstreamOp,
 	 {JavaId, _JavaObject} = Generic) ->
-    % send and recieve message
     {ok, _} = update(DownstreamOp, Generic),
-    net_kernel:connect_node(gethost()), % creates association if not already there
-    {javamailbox, gethost()} !
-      {self(),
-       {JavaId, snapshot}}, % sends the generic function
-    R = receive
-	  error -> throw("Oh no, an error has occurred");
-	  getobject ->
-	      Generic; %We are in an edge case where we don't have the object init msg yet but we are trying to snapshot the object. It still is the case that the first invoke we get will be the object init, we just have to wait to merge snapshot operations so we are returning Generic which is just new().
-	  M -> M
-	  after 5000 -> {"no answer!"}
-	end,
+	R = send_java({JavaId, snapshot}, Generic, fun snapshot/2, DownstreamOp, Generic),
     {ok, R}.
 
 -spec equal(antidote_crdt_generic(),
 	    antidote_crdt_generic()) -> boolean().
 
+% This could be value(GenericA) == value(GenericB)
 equal(GenericA, GenericB) -> GenericA == GenericB.
 
+%% Commented so that tests passed but something we want to use later
 %%equal(_GenericA, _GenericB) ->
 %%    throw("Waiiiittt... we actually use equality?? "
 %%	  "Please review antidote_crdt_generic "
@@ -208,11 +172,12 @@ is_operation({invoke, _Elem}) -> true;
 is_operation({invoke_all, L}) when is_list(L) -> true;
 is_operation(_) -> false.
 
-%% I ignore the `Generic` state in downstream so this is not needed
-require_state_downstream(_) -> false.
+%% The backend could use the current state in creating the downstream op so this is set to true
+require_state_downstream(_) -> true.
 
 %% TESTS
 -ifdef(TEST).
+
 unique() -> crypto:strong_rand_bytes(20).
 
 prepare_and_effect(Op, Generic) ->
