@@ -11,6 +11,12 @@
 
 -behaviour(antidote_crdt).
 
+-define(read, 0).
+-define(update, 1).
+-define(downstream, 2).
+-define(snapshot, 3).
+-define(newjavaid, 4).
+
 gethost() ->
     % First see if we have the node name declared at the antidote level(vm.args.src). If not grab node name from antidote_crdt.app.src...this is usually for testing
     R = case os:getenv("backend_node") of
@@ -32,7 +38,7 @@ send_java(Msg, {JavaId, JavaObject}, Fun, Arg) ->
 	      getobject ->
 		  io:fwrite("There has been a request for the object"),
 		  {javamailbox, gethost()} !
-		    {self(), {JavaId, invoke, JavaObject}},
+		    {self(), {JavaId, ?update, JavaObject}},
 		  receive
 		    error ->
 			io:fwrite("Something happened while we were trying "
@@ -55,7 +61,7 @@ send_java(Msg, {JavaId, JavaObject}, Fun, Arg1,
 	      getobject ->
 		  io:fwrite("There has been a request for the object"),
 		  {javamailbox, gethost()} !
-		    {self(), {JavaId, invoke, JavaObject}},
+		    {self(), {JavaId, ?update, JavaObject}},
 		  receive
 		    error ->
 			io:fwrite("Something happened while we were trying "
@@ -92,7 +98,7 @@ send_java(Msg, {JavaId, JavaObject}, Fun, Arg1,
 new() ->
     net_kernel:connect_node(gethost()), % creates association if not already there
     {javamailbox, gethost()} !
-      {self(), {<<>>, newjavaid}}, % sends the read call
+      {self(), {<<>>, ?newjavaid}}, % sends the read call
     R = receive
 	  error -> throw("Oh no, an error has occurred");
 	  M -> M
@@ -103,7 +109,7 @@ new() ->
 -spec value(antidote_crdt_generic()) -> binary().
 
 value({JavaId, _JavaObject} = Generic) ->
-    R = send_java({JavaId, read}, Generic, fun value/1, Generic),
+    R = send_java({JavaId, ?read}, Generic, fun value/1, Generic),
     R.
 
 -spec downstream(antidote_crdt_generic_op(),
@@ -111,7 +117,7 @@ value({JavaId, _JavaObject} = Generic) ->
 
 downstream({invoke, Elem},
 	   {JavaId, _JavaObject} = Generic) ->
-    R = send_java({JavaId, downstream, Elem}, Generic, fun downstream/2, {invoke, Elem}, Generic),
+    R = send_java({JavaId, ?downstream, Elem}, Generic, fun downstream/2, {invoke, Elem}, Generic),
     {ok, [R]}.
 
 last_elm([]) -> [];
@@ -137,13 +143,13 @@ apply_downstreams([Binary1 | OpsRest], Generic) ->
 
 apply_downstream(Binary,
 		 {JavaId, _JavaObject} = Generic) ->
-	R = send_java({JavaId, invoke, Binary}, Generic, fun apply_downstream/2, Binary, Generic),
+	R = send_java({JavaId, ?update, Binary}, Generic, fun apply_downstream/2, Binary, Generic),
     R.
 
 snapshot(DownstreamOp,
 	 {JavaId, _JavaObject} = Generic) ->
     {ok, _} = update(DownstreamOp, Generic),
-	R = send_java({JavaId, snapshot}, Generic, fun snapshot/2, DownstreamOp, Generic),
+	R = send_java({JavaId, ?snapshot}, Generic, fun snapshot/2, DownstreamOp, Generic),
     {ok, R}.
 
 -spec equal(antidote_crdt_generic(),
