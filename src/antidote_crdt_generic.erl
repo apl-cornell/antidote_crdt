@@ -1,7 +1,7 @@
 -module(antidote_crdt_generic).
 
 %% Callbacks
--export([downstream/2, equal/2, from_binary/1,
+-export([downstream/2, downstream/3, equal/2, from_binary/1,
 	 is_operation/1, new/0, require_state_downstream/1,
 	 snapshot/2, to_binary/1, update/2, value/1]).
 
@@ -68,6 +68,29 @@ send_java(Msg, {JavaId, JavaObject}, Fun, Arg1,
 				  "to update the JavaObject"),
 			throw("Oh no, an error has occurred");
 		    _M -> Fun(Arg1, Arg2)
+		    after 5000 -> io:fwrite("No answer~n"), {"no answer"}
+		  end;
+	      M -> M
+	      after 5000 -> io:fwrite("No answer~n"), {"no answer"}
+	    end.
+
+send_java(Msg, {JavaId, JavaObject}, Fun, Arg1,
+		  Arg2, Arg3) ->
+	net_kernel:connect_node(gethost()), % creates association if not already there
+	{javamailbox, gethost()} !
+	  {self(), Msg}, % sends message
+	receive
+	      error -> throw("Oh no, an error has occurred");
+	      getobject ->
+		  io:fwrite("There has been a request for the object"),
+		  {javamailbox, gethost()} !
+		    {self(), {JavaId, ?update, JavaObject}},
+		  receive
+		    error ->
+			io:fwrite("Something happened while we were trying "
+				  "to update the JavaObject"),
+			throw("Oh no, an error has occurred");
+		    _M -> Fun(Arg1, Arg2, Arg3)
 		    after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
 		  end;
 	      M -> M
@@ -115,9 +138,17 @@ value({JavaId, _JavaObject} = Generic) ->
 -spec downstream(antidote_crdt_generic_op(),
 		 antidote_crdt_generic()) -> {ok, downstream_op()}.
 
+-spec downstream(antidote_crdt_generic_op(),
+		 antidote_crdt_generic(), antidote:snapshot_time()) -> {ok, downstream_op()}.
+
 downstream({invoke, Elem},
 	   {JavaId, _JavaObject} = Generic) ->
     R = send_java({JavaId, ?downstream, Elem}, Generic, fun downstream/2, {invoke, Elem}, Generic),
+    {ok, [R]}.
+
+downstream({invoke, Elem},
+	   {JavaId, _JavaObject} = Generic, Time) ->
+    R = send_java({JavaId, ?downstream, Elem, Time}, Generic, fun downstream/3, {invoke, Elem}, Generic, Time),
     {ok, [R]}.
 
 last_elm([]) -> [];
