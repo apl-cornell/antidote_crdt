@@ -1,7 +1,7 @@
 -module(antidote_crdt_generic).
 
 %% Callbacks
--export([downstream/2, downstream/3, equal/2, from_binary/1,
+-export([downstream/2, downstream/4, equal/2, from_binary/1,
 	 is_operation/1, new/0, require_state_downstream/1,
 	 snapshot/2, to_binary/1, update/2, value/1]).
 
@@ -94,7 +94,7 @@ value({JavaId, _JavaObject} = Generic) ->
 		 antidote_crdt_generic()) -> {ok, downstream_op()}.
 
 -spec downstream(antidote_crdt_generic_op(),
-		 antidote_crdt_generic(), antidote:snapshot_time()) -> {ok, downstream_op()}.
+		 antidote_crdt_generic(), antidote:snapshot_time(), antidote:snapshot_time()) -> {ok, downstream_op()}.
 
 downstream({invoke, Elem},
 	   {JavaId, _JavaObject} = Generic) ->
@@ -102,8 +102,8 @@ downstream({invoke, Elem},
     {ok, [R]}.
 
 downstream({invoke, Elem},
-	   {JavaId, _JavaObject} = Generic, Time) ->
-    R = send_java({JavaId, ?downstream, Elem, Time}, Generic, fun(_) -> downstream({invoke, Elem}, Generic, Time) end),
+	   {JavaId, _JavaObject} = Generic, Transaction_Time, Stable_Snapshot_Time) ->
+    R = send_java({JavaId, ?downstream, Elem, Transaction_Time, Stable_Snapshot_Time}, Generic, fun(_) -> downstream({invoke, Elem}, Generic, Transaction_Time, Stable_Snapshot_Time) end),
     {ok, [R]}.
 
 last_elm([]) -> [];
@@ -117,13 +117,11 @@ last_elm(A) -> A.
 
 % Want only the last genericid in list, maybe just use the Generic variable instead?
 update(DownstreamOp, Generic) ->
-    io:fwrite("Got update~n"),
     {ok,
      last_elm(apply_downstreams(DownstreamOp, Generic))}.
 
 apply_downstreams([], Generic) -> Generic;
 apply_downstreams([Binary1 | OpsRest], Generic) ->
-    io:fwrite("Splitting downstream~n"),
     [apply_downstream(Binary1, Generic)
      | apply_downstreams(OpsRest, Generic)].
 
