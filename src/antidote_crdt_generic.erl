@@ -1,7 +1,7 @@
 -module(antidote_crdt_generic).
 
 %% Callbacks
--export([downstream/2, downstream/3, equal/2, from_binary/1,
+-export([downstream/2, downstream/4, equal/2, from_binary/1,
 	 is_operation/1, new/0, require_state_downstream/1,
 	 snapshot/2, to_binary/1, update/2, value/1]).
 
@@ -16,6 +16,7 @@
 -define(downstream, 2).
 -define(snapshot, 3).
 -define(newjavaid, 4).
+-define(loadsnapshot, 5).
 
 gethost() ->
     % First see if we have the node name declared at the antidote level(vm.args.src). If not grab node name from antidote_crdt.app.src...this is usually for testing
@@ -29,7 +30,7 @@ gethost() ->
 	end,
     R.
 
-send_java(Msg, {JavaId, JavaObject}, Fun, Arg) ->
+send_java(Msg, {JavaId, JavaObject}, Fun) ->
 	net_kernel:connect_node(gethost()), % creates association if not already there
 	{javamailbox, gethost()} !
 	  {self(), Msg}, % sends message
@@ -38,59 +39,13 @@ send_java(Msg, {JavaId, JavaObject}, Fun, Arg) ->
 	      getobject ->
 		  io:fwrite("There has been a request for the object"),
 		  {javamailbox, gethost()} !
-		    {self(), {JavaId, ?update, JavaObject}},
+		    {self(), {JavaId, ?loadsnapshot, JavaObject}},
 		  receive
 		    error ->
 			io:fwrite("Something happened while we were trying "
 				  "to update the JavaObject"),
 			throw("Oh no, an error has occurred");
-		    _M -> Fun(Arg)
-		    after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-		  end;
-	      M -> M
-	      after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
-	    end.
-
-send_java(Msg, {JavaId, JavaObject}, Fun, Arg1,
-		  Arg2) ->
-	net_kernel:connect_node(gethost()), % creates association if not already there
-	{javamailbox, gethost()} !
-	  {self(), Msg}, % sends message
-	receive
-	      error -> throw("Oh no, an error has occurred");
-	      getobject ->
-		  io:fwrite("There has been a request for the object"),
-		  {javamailbox, gethost()} !
-		    {self(), {JavaId, ?update, JavaObject}},
-		  receive
-		    error ->
-			io:fwrite("Something happened while we were trying "
-				  "to update the JavaObject"),
-			throw("Oh no, an error has occurred");
-		    _M -> Fun(Arg1, Arg2)
-		    after 5000 -> io:fwrite("No answer~n"), {"no answer"}
-		  end;
-	      M -> M
-	      after 5000 -> io:fwrite("No answer~n"), {"no answer"}
-	    end.
-
-send_java(Msg, {JavaId, JavaObject}, Fun, Arg1,
-		  Arg2, Arg3) ->
-	net_kernel:connect_node(gethost()), % creates association if not already there
-	{javamailbox, gethost()} !
-	  {self(), Msg}, % sends message
-	receive
-	      error -> throw("Oh no, an error has occurred");
-	      getobject ->
-		  io:fwrite("There has been a request for the object"),
-		  {javamailbox, gethost()} !
-		    {self(), {JavaId, ?update, JavaObject}},
-		  receive
-		    error ->
-			io:fwrite("Something happened while we were trying "
-				  "to update the JavaObject"),
-			throw("Oh no, an error has occurred");
-		    _M -> Fun(Arg1, Arg2, Arg3)
+		    _M -> Fun()
 		    after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
 		  end;
 	      M -> M
@@ -132,23 +87,23 @@ new() ->
 -spec value(antidote_crdt_generic()) -> binary().
 
 value({JavaId, _JavaObject} = Generic) ->
-    R = send_java({JavaId, ?read}, Generic, fun value/1, Generic),
+    R = send_java({JavaId, ?read}, Generic, fun(_) -> value(Generic) end),
     R.
 
 -spec downstream(antidote_crdt_generic_op(),
 		 antidote_crdt_generic()) -> {ok, downstream_op()}.
 
 -spec downstream(antidote_crdt_generic_op(),
-		 antidote_crdt_generic(), antidote:snapshot_time()) -> {ok, downstream_op()}.
+		 antidote_crdt_generic(), antidote:snapshot_time(), antidote:snapshot_time()) -> {ok, downstream_op()}.
 
 downstream({invoke, Elem},
 	   {JavaId, _JavaObject} = Generic) ->
-    R = send_java({JavaId, ?downstream, Elem}, Generic, fun downstream/2, {invoke, Elem}, Generic),
+    R = send_java({JavaId, ?downstream, Elem}, Generic, fun(_) -> downstream({invoke, Elem}, Generic) end),
     {ok, [R]}.
 
 downstream({invoke, Elem},
-	   {JavaId, _JavaObject} = Generic, Time) ->
-    R = send_java({JavaId, ?downstream, Elem, Time}, Generic, fun downstream/3, {invoke, Elem}, Generic, Time),
+	   {JavaId, _JavaObject} = Generic, Transaction_Time, Stable_Snapshot_Time) ->
+    R = send_java({JavaId, ?downstream, Elem, Transaction_Time, Stable_Snapshot_Time}, Generic, fun(_) -> downstream({invoke, Elem}, Generic, Transaction_Time, Stable_Snapshot_Time) end),
     {ok, [R]}.
 
 last_elm([]) -> [];
@@ -162,25 +117,23 @@ last_elm(A) -> A.
 
 % Want only the last genericid in list, maybe just use the Generic variable instead?
 update(DownstreamOp, Generic) ->
-    io:fwrite("Got update~n"),
     {ok,
      last_elm(apply_downstreams(DownstreamOp, Generic))}.
 
 apply_downstreams([], Generic) -> Generic;
 apply_downstreams([Binary1 | OpsRest], Generic) ->
-    io:fwrite("Splitting downstream~n"),
     [apply_downstream(Binary1, Generic)
      | apply_downstreams(OpsRest, Generic)].
 
 apply_downstream(Binary,
 		 {JavaId, _JavaObject} = Generic) ->
-	R = send_java({JavaId, ?update, Binary}, Generic, fun apply_downstream/2, Binary, Generic),
+	R = send_java({JavaId, ?update, Binary}, Generic, fun(_) -> apply_downstream(Binary, Generic) end),
     R.
 
 snapshot(DownstreamOp,
 	 {JavaId, _JavaObject} = Generic) ->
     {ok, _} = update(DownstreamOp, Generic),
-	R = send_java({JavaId, ?snapshot}, Generic, fun snapshot/2, DownstreamOp, Generic),
+	R = send_java({JavaId, ?snapshot}, Generic, fun(_) -> snapshot(DownstreamOp, Generic) end),
     {ok, R}.
 
 -spec equal(antidote_crdt_generic(),
