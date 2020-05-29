@@ -45,11 +45,11 @@ send_java(Msg, {JavaId, JavaObject}, Fun) ->
 			io:fwrite("Something happened while we were trying "
 				  "to update the JavaObject"),
 			throw("Oh no, an error has occurred");
-		    _M -> Fun()
-		    after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+		    _M -> Fun(unit) % I actually need to pass something here even though I don't use it. I use the atom "unit" since there isn't a strict unit type but maybe something like ```any()``` would also work.
+		    after 5000 -> io:fwrite("No answer~n"), throw("no answer!")
 		  end;
 	      M -> M
-	      after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	      after 5000 -> io:fwrite("No answer~n"), throw("no answer!")
 	    end.
 
 -ifdef(TEST).
@@ -80,7 +80,7 @@ new() ->
     R = receive
 	  error -> throw("Oh no, an error has occurred");
 	  M -> M
-	  after 5000 -> io:fwrite("No answer~n"), {"no answer!"}
+	  after 5000 -> io:fwrite("No answer~n"), throw("no answer!")
 	end,
     {R, <<>>}.
 
@@ -127,8 +127,9 @@ apply_downstreams([Binary1 | OpsRest], Generic) ->
 
 apply_downstream(Binary,
 		 {JavaId, _JavaObject} = Generic) ->
-	R = send_java({JavaId, ?update, Binary}, Generic, fun(_) -> apply_downstream(Binary, Generic) end),
-    R.
+% Maybe we should do some check here to see if things error but if they did then it's been a catastrophic error as this part should not error.
+	_R = send_java({JavaId, ?update, Binary}, Generic, fun(_) -> apply_downstream(Binary, Generic) end),
+    Generic.
 
 snapshot(DownstreamOp,
 	 {JavaId, _JavaObject} = Generic) ->
