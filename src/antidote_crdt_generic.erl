@@ -18,6 +18,8 @@
 -define(newjavaid, 4).
 -define(loadsnapshot, 5).
 
+-define(backendtimeout, 5000).
+
 gethost() ->
     % First see if we have the node name declared at the antidote level(vm.args.src). If not grab node name from antidote_crdt.app.src...this is usually for testing
     R = case os:getenv("backend_node") of
@@ -35,21 +37,21 @@ send_java(Msg, {JavaId, JavaObject}, Fun) ->
 	{javamailbox, gethost()} !
 	  {self(), Msg}, % sends message
 	receive
-	      error -> throw("Oh no, an error has occurred");
-	      getobject ->
+	      {javaBackendMessage, error} -> throw("Oh no, an error has occurred");
+	      {javaBackendMessage, getobject} ->
 		  io:fwrite("There has been a request for the object"),
 		  {javamailbox, gethost()} !
 		    {self(), {JavaId, ?loadsnapshot, JavaObject}},
 		  receive
-		    error ->
+		    {javaBackendMessage, error} ->
 			io:fwrite("Something happened while we were trying "
 				  "to update the JavaObject"),
 			throw("Oh no, an error has occurred");
-		    _M -> Fun(unit) % I actually need to pass something here even though I don't use it. I use the atom "unit" since there isn't a strict unit type but maybe something like ```any()``` would also work.
-		    after 5000 -> io:fwrite("No answer~n"), throw("no answer!")
+		    {javaBackendMessage, _M} -> Fun(unit) % I actually need to pass something here even though I don't use it. I use the atom "unit" since there isn't a strict unit type but maybe something like ```any()``` would also work.
+		    after ?backendtimeout -> io:fwrite("No answer~n"), throw("no answer!")
 		  end;
-	      M -> M
-	      after 5000 -> io:fwrite("No answer~n"), throw("no answer!")
+	      {javaBackendMessage, M} -> M
+	      after ?backendtimeout -> io:fwrite("No answer~n"), throw("no answer!")
 	    end.
 
 -ifdef(TEST).
@@ -78,9 +80,9 @@ new() ->
     {javamailbox, gethost()} !
       {self(), {<<>>, ?newjavaid}}, % sends the read call
     R = receive
-	  error -> throw("Oh no, an error has occurred");
-	  M -> M
-	  after 5000 -> io:fwrite("No answer~n"), throw("no answer!")
+	  {javaBackendMessage, error} -> throw("Oh no, an error has occurred");
+	  {javaBackendMessage, M} -> M
+	  after ?backendtimeout -> io:fwrite("No answer~n"), throw("no answer!")
 	end,
     {R, <<>>}.
 
